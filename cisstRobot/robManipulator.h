@@ -88,6 +88,8 @@ class CISST_EXPORT robManipulator{
                     vctDynamicMatrix<double>& J) const;
 
 
+  void JacobianEndeffector( const vctDynamicVector<double>& q ) const;
+
   //! Evaluate the spatial Jacobian
   /**
      Evaluate the geometric spatial Jacobian.
@@ -235,6 +237,7 @@ public:
     robManipulator::Errno
     InverseKinematics( vctDynamicVector<double>& q,
                        const vctFrame4x4<double>& Rts,
+                       bool isUseJs = true,
                        double tolerance=1e-12,
                        size_t Niteration=1000,
                        double LAMBDA=0.001 );

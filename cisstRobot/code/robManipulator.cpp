@@ -397,6 +397,7 @@ robManipulator::InverseKinematics( vctDynamicVector<double>& q,
 robManipulator::Errno
 robManipulator::InverseKinematics( vctDynamicVector<double>& q,
                                    const vctFrame4x4<double>& Rts,
+                                   bool isUseJs,
                                    double tolerance,
                                    size_t Niterations,
                                    double LAMBDA ){
@@ -445,11 +446,13 @@ robManipulator::InverseKinematics( vctDynamicVector<double>& q,
 
   // loop until Niter are executed or the error is bellow the tolerance
   for( i=0; i<Niterations && tolerance<ndq; i++ ){
-
     // Evaluate the forward kinematics
     vctFrame4x4<double,VCT_ROW_MAJOR> Rt = ForwardKinematics( q );
     // Evaluate the spatial Jacobian (also evaluate the forward kin)
-    JacobianSpatial( q );
+    if (isUseJs)
+        JacobianSpatial( q );
+    else
+        JacobianEndeffector( q );
 
     // compute the translation error
     vctFixedSizeVector<double,3> dt( Rts[0][3]-Rt[0][3],
@@ -519,7 +522,7 @@ robManipulator::InverseKinematics( vctDynamicVector<double>& q,
     // update the solution
     for(size_t j=0; j<links.size(); j++) q[j] += dq[j];
   }
-
+  std::cout << "#" << i << '\n';
   NormalizeAngles(q);
 
   delete[] B;
@@ -778,6 +781,68 @@ void robManipulator::JacobianSpatial( const vctDynamicVector<double>& q ) const{
   integer LDC = 6;          // specifies the first dimension of C
 
   // Js = Ad * Jn
+  gemm(TRANSA, TRANSB,
+       &M, &N, &K,
+       &ALPHA, A, &LDA,
+               B, &LDB,
+       &BETA,  C, &LDC);
+}
+
+void robManipulator::JacobianEndeffector( const vctDynamicVector<double>& q ) const{
+
+  JacobianBody( q );
+
+  /*
+   * Get the adjoint matrix to flip the body jacobian to spatial jacobian
+   */
+  vctFrame4x4<double> Rt0n = ForwardKinematics( q );
+  double Ad[6][6];//( this->FK() );
+
+  // Build the adjoint matrix
+  // upper left block
+  Ad[0][0] = Rt0n[0][0];     Ad[0][1] = Rt0n[0][1];     Ad[0][2] = Rt0n[0][2];
+  Ad[1][0] = Rt0n[1][0];     Ad[1][1] = Rt0n[1][1];     Ad[1][2] = Rt0n[1][2];
+  Ad[2][0] = Rt0n[2][0];     Ad[2][1] = Rt0n[2][1];     Ad[2][2] = Rt0n[2][2];
+
+  // upper right block
+  Ad[0][3] = 0.0;
+  Ad[0][4] = 0.0;
+  Ad[0][5] = 0.0;
+
+  Ad[1][3] =  0.0;
+  Ad[1][4] =  0.0;
+  Ad[1][5] =  0.0;
+
+  Ad[2][3] = 0.0;
+  Ad[2][4] = 0.0;
+  Ad[2][5] = 0.0;
+
+
+  // lower left block
+  Ad[3][0] = 0.0;            Ad[3][1] = 0.0;            Ad[3][2] = 0.0;
+  Ad[4][0] = 0.0;            Ad[4][1] = 0.0;            Ad[4][2] = 0.0;
+  Ad[5][0] = 0.0;            Ad[5][1] = 0.0;            Ad[5][2] = 0.0;
+
+  // lower right block
+  Ad[3][3] = Rt0n[0][0];     Ad[3][4] = Rt0n[0][1];     Ad[3][5] = Rt0n[0][2];
+  Ad[4][3] = Rt0n[1][0];     Ad[4][4] = Rt0n[1][1];     Ad[4][5] = Rt0n[1][2];
+  Ad[5][3] = Rt0n[2][0];     Ad[5][4] = Rt0n[2][1];     Ad[5][5] = Rt0n[2][2];
+
+  char TRANSA[] = "T";  // op(Ad): transpose of Ad coz it's row major
+  char TRANSB[] = "N";  // op(Jn)
+  integer M = 6;            // specifies  the number  of rows  of op( Ad )
+  integer N = links.size();// specifies the number  of columns of the matrix Jn
+  integer K = 6;            // specifies  the number of columns of op( Ad )
+  doublereal ALPHA = 1.0;     // C := alpha*op( A )*op( B ) + beta*C
+  doublereal* A = &Ad[0][0];  //
+  integer LDA = 6;          // specifies the first dimension of A
+  doublereal* B = &Jn[0][0];  //
+  integer LDB = 6;          // specifies  the first dimension of B
+  doublereal BETA = 0.0;      // C := alpha*op( A )*op( B ) + beta*C
+  doublereal* C = &Js[0][0];  //
+  integer LDC = 6;          // specifies the first dimension of C
+
+  // Je = Ad * Jn
   gemm(TRANSA, TRANSB,
        &M, &N, &K,
        &ALPHA, A, &LDA,
